@@ -3,7 +3,11 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
-<title>DIY Fusion Test (Single File)</title>
+<title>DIY Fusion Experiment (COCO + HUD)</title>
+
+<!-- ===== TensorFlow / COCO ===== -->
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.16.0"></script>
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd"></script>
 
 <style>
 html, body {
@@ -30,7 +34,7 @@ html, body {
   object-fit: cover;
 }
 
-/* ===== HAND IMAGE (PNG) ===== */
+/* ===== HAND PNG ===== */
 #handImg {
   position: absolute;
   inset: 0;
@@ -38,10 +42,11 @@ html, body {
   height: 100%;
   object-fit: contain;
   pointer-events: none;
-  transition: filter 0.2s ease, opacity 0.2s ease;
+  opacity: 0.7;                 /* ★ 半透明 */
+  transition: filter 0.2s ease;
 }
 
-/* ===== OVERLAY (bbox / HUD用) ===== */
+/* ===== OVERLAY ===== */
 #overlay {
   position: absolute;
   inset: 0;
@@ -65,12 +70,12 @@ html, body {
   width: 100%;
 }
 
-/* ===== HUD DEBUG ===== */
+/* ===== HUD ===== */
 #hud {
   position: fixed;
   left: 10px;
   bottom: 10px;
-  background: rgba(0,0,0,0.7);
+  background: rgba(0,0,0,0.75);
   color: #0f0;
   padding: 8px;
   font-size: 12px;
@@ -85,10 +90,7 @@ html, body {
 
 <div id="stage">
   <video id="video" autoplay muted playsinline></video>
-
-  <!-- ★ 画像は index.html と同じ階層 -->
   <img id="handImg" src="hand_open.png" />
-
   <canvas id="overlay"></canvas>
 </div>
 
@@ -109,12 +111,18 @@ let state = {
   pose: "open",
   recognition: true,
   hud: false,
-  lockTimer: null,
-  lastEvent: "-"
+  lastEvent: "-",
+  cocoReady: false,
+  detections: []
 };
 
+let model = null;
+const video = document.getElementById("video");
+const canvas = document.getElementById("overlay");
+const ctx = canvas.getContext("2d");
+
 /* ===============================
-   HAND IMAGE CONTROL
+   HAND IMAGE
 ================================ */
 function updateHandImage() {
   const img = document.getElementById("handImg");
@@ -122,59 +130,31 @@ function updateHandImage() {
   if (state.pose === "open") {
     img.src = "hand_open.png";
     img.style.filter = "none";
-    img.style.opacity = "1";
   }
 
   if (state.pose === "miniopen") {
     img.src = "hand_open.png";
     img.style.filter =
       "drop-shadow(0 0 25px rgba(0,180,255,0.7))";
-    img.style.opacity = "0.95";
   }
 
   if (state.pose === "hold") {
     img.src = "hand_hold.png";
     img.style.filter =
       "drop-shadow(0 0 30px rgba(255,255,0,0.8))";
-    img.style.opacity = "1";
   }
 
   updateHUD();
 }
 
-/* ===============================
-   POSE SET
-================================ */
 function setPose(pose) {
   state.pose = pose;
   state.lastEvent = `POSE → ${pose}`;
   updateHandImage();
-
-  if (pose === "hold") {
-    autoLockStopRecognition();
-  }
 }
 
 /* ===============================
-   AUTO LOCK (5秒)
-================================ */
-function autoLockStopRecognition() {
-  if (!state.recognition) return;
-
-  state.recognition = false;
-  state.lastEvent = "Recognition STOP (auto-lock)";
-  updateHUD();
-
-  clearTimeout(state.lockTimer);
-  state.lockTimer = setTimeout(() => {
-    state.recognition = true;
-    state.lastEvent = "Recognition RESUME";
-    updateHUD();
-  }, 5000);
-}
-
-/* ===============================
-   HUD DEBUG
+   HUD
 ================================ */
 function toggleHUD() {
   state.hud = !state.hud;
@@ -185,33 +165,90 @@ function toggleHUD() {
 
 function updateHUD() {
   if (!state.hud) return;
+
   document.getElementById("hud").textContent =
 `HUD DEBUG
 pose: ${state.pose}
 recognition: ${state.recognition}
+COCO: ${state.cocoReady}
+detections: ${state.detections.length}
 lastEvent: ${state.lastEvent}`;
 }
 
 /* ===============================
-   CAMERA INIT
+   CAMERA
 ================================ */
 async function initCamera() {
-  const video = document.getElementById("video");
   const stream = await navigator.mediaDevices.getUserMedia({
     video: { facingMode: "environment" },
     audio: false
   });
   video.srcObject = stream;
+
+  video.onloadedmetadata = () => {
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+  };
 }
-initCamera();
 
 /* ===============================
-   COCO 接続ポイント（後で）
-================================
-v112 の COCO 判定結果で
-setPose("open") / setPose("hold")
-を呼ぶだけでOK
+   COCO INIT
 ================================ */
+async function initCOCO() {
+  model = await cocoSsd.load();
+  state.cocoReady = true;
+  state.lastEvent = "COCO loaded";
+  updateHUD();
+  detectLoop();
+}
+
+/* ===============================
+   DETECTION LOOP
+================================ */
+async function detectLoop() {
+  if (!state.recognition || !model) {
+    requestAnimationFrame(detectLoop);
+    return;
+  }
+
+  const predictions = await model.detect(video);
+  state.detections = predictions;
+
+  drawBoxes(predictions);
+  updateHUD();
+
+  requestAnimationFrame(detectLoop);
+}
+
+/* ===============================
+   DRAW BBOX
+================================ */
+function drawBoxes(preds) {
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  ctx.strokeStyle = "lime";
+  ctx.lineWidth = 2;
+  ctx.font = "14px monospace";
+  ctx.fillStyle = "lime";
+
+  preds.forEach(p => {
+    const [x, y, w, h] = p.bbox;
+    ctx.strokeRect(x, y, w, h);
+    ctx.fillText(
+      `${p.class} ${Math.round(p.score * 100)}%`,
+      x,
+      y > 10 ? y - 5 : 10
+    );
+  });
+}
+
+/* ===============================
+   START
+================================ */
+(async () => {
+  await initCamera();
+  await initCOCO();
+})();
 </script>
 
 </body>
