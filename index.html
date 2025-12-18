@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
-<title>DIY + Hand PNG Overlay (Fusion v0)</title>
+<title>DIY Fusion Test (Single File)</title>
 
 <style>
 html, body {
@@ -41,7 +41,7 @@ html, body {
   transition: filter 0.2s ease, opacity 0.2s ease;
 }
 
-/* ===== OVERLAY (bbox / HUD) ===== */
+/* ===== OVERLAY (bbox / HUD用) ===== */
 #overlay {
   position: absolute;
   inset: 0;
@@ -85,7 +85,10 @@ html, body {
 
 <div id="stage">
   <video id="video" autoplay muted playsinline></video>
-  <img id="handImg" src="img/hand_open.png" />
+
+  <!-- ★ 画像は index.html と同じ階層 -->
+  <img id="handImg" src="hand_open.png" />
+
   <canvas id="overlay"></canvas>
 </div>
 
@@ -93,7 +96,6 @@ html, body {
   <button onclick="setPose('open')">OPEN</button>
   <button onclick="setPose('miniopen')">MINI OPEN</button>
   <button onclick="setPose('hold')">HOLD</button>
-  <button onclick="setPose('egg')">EGG</button>
   <button onclick="toggleHUD()">HUD DEBUG</button>
 </div>
 
@@ -118,36 +120,30 @@ function updateHandImage() {
   const img = document.getElementById("handImg");
 
   if (state.pose === "open") {
-    img.src = "img/hand_open.png";
+    img.src = "hand_open.png";
     img.style.filter = "none";
     img.style.opacity = "1";
   }
 
   if (state.pose === "miniopen") {
-    img.src = "img/hand_open.png";
+    img.src = "hand_open.png";
     img.style.filter =
       "drop-shadow(0 0 25px rgba(0,180,255,0.7))";
     img.style.opacity = "0.95";
   }
 
   if (state.pose === "hold") {
-    img.src = "img/hand_hold.png";
+    img.src = "hand_hold.png";
     img.style.filter =
       "drop-shadow(0 0 30px rgba(255,255,0,0.8))";
     img.style.opacity = "1";
-  }
-
-  if (state.pose === "egg") {
-    img.src = "img/hand_open.png";
-    img.style.filter = "none";
-    img.style.opacity = "0.8";
   }
 
   updateHUD();
 }
 
 /* ===============================
-   POSE SET (COCOからも呼ばれる)
+   POSE SET
 ================================ */
 function setPose(pose) {
   state.pose = pose;
@@ -160,7 +156,7 @@ function setPose(pose) {
 }
 
 /* ===============================
-   AUTO LOCK (5 sec stop)
+   AUTO LOCK (5秒)
 ================================ */
 function autoLockStopRecognition() {
   if (!state.recognition) return;
@@ -174,7 +170,7 @@ function autoLockStopRecognition() {
     state.recognition = true;
     state.lastEvent = "Recognition RESUME";
     updateHUD();
-  }, 5000); // ★ 5秒
+  }, 5000);
 }
 
 /* ===============================
@@ -189,13 +185,11 @@ function toggleHUD() {
 
 function updateHUD() {
   if (!state.hud) return;
-  const hud = document.getElementById("hud");
-  hud.textContent =
+  document.getElementById("hud").textContent =
 `HUD DEBUG
 pose: ${state.pose}
 recognition: ${state.recognition}
-lastEvent: ${state.lastEvent}
-`;
+lastEvent: ${state.lastEvent}`;
 }
 
 /* ===============================
@@ -212,15 +206,11 @@ async function initCamera() {
 initCamera();
 
 /* ===============================
-   COCO SSD 接続ポイント
+   COCO 接続ポイント（後で）
 ================================
-v112 の COCO 判定結果を
-ここで setPose() に接続するだけ。
-
-例:
-if (detectedPose === "lock") {
-  setPose("hold");
-}
+v112 の COCO 判定結果で
+setPose("open") / setPose("hold")
+を呼ぶだけでOK
 ================================ */
 </script>
 
