@@ -1,255 +1,1073 @@
 <!DOCTYPE html>
-<html lang="ja">
+<html lang="en">
 <head>
-<meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
-<title>DIY Fusion Experiment (COCO + HUD)</title>
+  <meta charset="UTF-8" />
+  <title>Colorful Custom Hand AI Project (fcAI) + DIY Mode</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 
-<!-- ===== TensorFlow / COCO ===== -->
-<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.16.0"></script>
-<script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd"></script>
+  <!-- ====== External libs: TensorFlow.js (modular) + COCO-SSD + (DIY) MobileNet + Layers ====== -->
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-core"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-converter"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-backend-webgl"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-backend-cpu"></script>
 
-<style>
-html, body {
-  margin: 0;
-  padding: 0;
-  background: #000;
-  overflow: hidden;
-  height: 100%;
-}
+  <!-- DIY needs layers + mobilenet -->
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-layers"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/mobilenet"></script>
 
-/* ===== STAGE ===== */
-#stage {
-  position: relative;
-  width: 100vw;
-  height: 100vh;
-}
+  <!-- COCO-SSD -->
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd"></script>
 
-/* ===== CAMERA ===== */
-#video {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
+  <style>
+    /* =========================================
+       Global Theme (ARCH-style)
+    ========================================= */
+    body {
+      margin: 0;
+      padding: 0;
+      background: #111;
+      color: #fff;
+      font-family: Arial, sans-serif;
+      -webkit-user-select: none;
+      user-select: none;
+      transition: background 180ms ease;
+    }
+    body.diy-mode {
+      background: #0b2c6b; /* stylish blue */
+    }
+    h1, h2, h3 { margin: 0; padding: 0; }
 
-/* ===== HAND PNG ===== */
-#handImg {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  object-fit: contain;
-  pointer-events: none;
-  opacity: 0.9;                 /* ★ 半透明 */
-  transition: filter 0.2s ease;
-}
+    /* =========================================
+       Top Header
+    ========================================= */
+    #topHeader {
+      width: 100%;
+      background: #222;
+      padding: 8px 12px;
+      display: flex;
+      flex-direction: row;
+      align-items: center;
+      justify-content: space-between;
+      box-sizing: border-box;
+      position: sticky;
+      top: 0;
+      z-index: 50;
+    }
+    #titleArea h1 { font-size: 18px; margin-bottom: 4px; }
+    #languageLabel { font-size: 12px; color: #aaa; }
 
-/* ===== OVERLAY ===== */
-#overlay {
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-}
+    /* =============== Menu =============== */
+    #menuWrapper { position: relative; }
+    #menuToggle {
+      background: #444;
+      color: #fff;
+      border: none;
+      font-size: 20px;
+      padding: 6px 12px;
+      border-radius: 6px;
+      cursor: pointer;
+    }
+    #menuPanel {
+      position: absolute;
+      right: 0;
+      margin-top: 6px;
+      width: 270px;
+      background: #333;
+      border: 1px solid #555;
+      border-radius: 8px;
+      padding: 10px;
+      z-index: 200;
+    }
+    .hidden { display: none; }
+    .menu-section { margin-bottom: 12px; }
+    .menu-section h3 { font-size: 14px; margin-bottom: 6px; }
+    #menuPanel select,
+    #menuPanel input[type="range"],
+    #menuPanel button { width: 100%; }
+    #menuPanel span { font-size: 12px; color: #ddd; }
 
-/* ===== MENU ===== */
-#menu {
-  position: fixed;
-  top: 10px;
-  right: 10px;
-  background: rgba(0,0,0,0.65);
-  color: #fff;
-  padding: 10px;
-  border-radius: 10px;
-  font-size: 13px;
-}
-#menu button {
-  display: block;
-  margin: 4px 0;
-  width: 100%;
-}
+    .row {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+    }
+    .row > * { flex: 1; }
 
-/* ===== HUD ===== */
-#hud {
-  position: fixed;
-  left: 10px;
-  bottom: 10px;
-  background: rgba(0,0,0,0.75);
-  color: #0f0;
-  padding: 8px;
-  font-size: 12px;
-  border-radius: 6px;
-  display: none;
-  white-space: pre;
-}
-</style>
+    #refreshCamsBtn {
+      flex: 0 0 auto;
+      padding: 7px 10px;
+      border-radius: 8px;
+      border: none;
+      background: #555;
+      color: #fff;
+      cursor: pointer;
+      font-size: 12px;
+      width: auto;
+    }
+
+    #diyEnterBtn {
+      padding: 9px 10px;
+      border-radius: 10px;
+      border: 1px solid rgba(255,255,255,0.18);
+      background: rgba(255,255,255,0.10);
+      color: #fff;
+      cursor: pointer;
+      font-size: 13px;
+    }
+
+    /* =========================================
+       Main Application Area
+    ========================================= */
+    #appContainer {
+      width: 100%;
+      padding: 8px;
+      box-sizing: border-box;
+    }
+
+    /* ======== Video + RenderCanvas + Overlay ======== */
+    #videoWrapper {
+      width: 100%;
+      max-width: 420px;
+      margin: 0 auto;
+      position: relative;
+      overflow: hidden;
+      border-radius: 10px;
+      aspect-ratio: 3 / 4;
+      background: #000;
+    }
+
+    /* video is only for capture (hidden) */
+    #video {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      opacity: 0;
+      pointer-events: none;
+    }
+
+    /* render canvas shows video + bbox (MediaPipe style) */
+    #renderCanvas {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      z-index: 2;
+      pointer-events: none;
+    }
+
+    #overlaySvg {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      z-index: 3;
+      pointer-events: none;
+    }
+
+    /* =========================================
+       DEBUG HUD (Head-Up Display)
+    ========================================= */
+    #debugHud {
+      position: fixed;
+      top: 8px;
+      left: 8px;
+      width: min(520px, calc(100vw - 16px));
+      max-height: min(46vh, calc(100vh - 16px));
+      z-index: 9999;
+      background: rgba(0,0,0,0.62);
+      border: 1px solid rgba(255,255,255,0.18);
+      border-radius: 10px;
+      overflow: hidden;
+      backdrop-filter: blur(4px);
+      -webkit-backdrop-filter: blur(4px);
+      display: none;
+    }
+
+    /* ===============================
+       ★ 追記（既存CSSは変更していない）
+       スマホでメニューが消えないため
+    =============================== */
+    #topHeader {
+      z-index: 10000;
+      pointer-events: auto;
+    }
+    #menuWrapper,
+    #menuToggle,
+    #menuPanel {
+      pointer-events: auto;
+    }
+  </style>
 </head>
-
 <body>
 
-<div id="stage">
-  <video id="video" autoplay muted playsinline></video>
-  <img id="handImg" src="hand_pen.png" />
-  <canvas id="overlay"></canvas>
-</div>
+  <!-- =========================
+       TOP HEADER
+  ========================== -->
+  <div id="topHeader">
+    <div id="titleArea">
+      <h1>Colorful Custom Hand AI Project</h1>
+      <div id="languageLabel">fcAI + DIY Mode</div>
+    </div>
 
-<div id="menu">
-  <button onclick="setPose('open')">OPEN</button>
-  <button onclick="setPose('miniopen')">MINI OPEN</button>
-  <button onclick="setPose('hold')">HOLD</button>
-  <button onclick="toggleHUD()">HUD DEBUG</button>
-</div>
+    <div id="menuWrapper">
+      <button id="menuToggle">☰</button>
 
-<div id="hud"></div>
+      <div id="menuPanel" class="hidden">
 
-<script>
-/* ===============================
-   STATE
-================================ */
-let state = {
-  pose: "open",
-  recognition: true,
-  hud: false,
-  lastEvent: "-",
-  cocoReady: false,
-  detections: []
-};
+        <!-- ===== Camera ===== -->
+        <div class="menu-section">
+          <h3>Camera</h3>
+          <div class="row">
+            <select id="cameraSelect"></select>
+            <button id="refreshCamsBtn">↻</button>
+          </div>
+        </div>
 
-let model = null;
-const video = document.getElementById("video");
-const canvas = document.getElementById("overlay");
-const ctx = canvas.getContext("2d");
+        <!-- ===== Detection ===== -->
+        <div class="menu-section">
+          <h3>Detection</h3>
 
-/* ===============================
-   HAND IMAGE
-================================ */
-function updateHandImage() {
-  const img = document.getElementById("handImg");
+          <label>Max results:
+            <input id="maxResults" type="range" min="1" max="5" step="1" value="1">
+            <span id="maxResultsValue">1</span>
+          </label>
 
-  if (state.pose === "open") {
-    img.src = "hand_open.png";
-    img.style.filter = "none";
+          <label>Score threshold:
+            <input id="scoreSlider" type="range" min="2" max="30" step="1" value="15">
+            <span id="scoreValue">15 %</span>
+          </label>
+
+          <label>Freeze duration:
+            <input id="freezeSlider" type="range" min="2" max="8" step="1" value="3">
+            <span id="freezeValue">3 sec</span>
+          </label>
+        </div>
+
+        <!-- ===== BASIC ===== -->
+        <div class="menu-section">
+          <h3>BASIC boxes</h3>
+          <select id="basicSelect">
+            <option value="on">ON</option>
+            <option value="off">OFF</option>
+          </select>
+        </div>
+
+        <!-- ===== Custom Model ===== -->
+        <div class="menu-section">
+          <h3>Custom Model</h3>
+          <select id="useCustomSelect">
+            <option value="off">OFF</option>
+            <option value="on">ON</option>
+          </select>
+        </div>
+
+        <!-- ===== DEBUG HUD ===== -->
+        <div Class="menu-section">
+          <h3>HUD Debug</h3>
+          <select id="debugHudSelect">
+            <option value="off">OFF</option>
+            <option value="on">ON</option>
+          </select>
+        </div>
+
+        <!-- ===== DIY ===== -->
+        <div class="menu-section">
+          <button id="diyEnterBtn">Enter DIY Mode</button>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <!-- =========================
+       APP CONTAINER
+  ========================== -->
+  <div id="appContainer">
+
+    <!-- ===== Video + Canvas ===== -->
+    <div id="videoWrapper">
+
+      <video id="video" autoplay muted playsinline></video>
+      <canvas id="renderCanvas"></canvas>
+
+      <!-- ===== Overlay SVG (hand images live here) ===== -->
+      <svg id="overlaySvg" viewBox="0 0 300 400" preserveAspectRatio="xMidYMid meet">
+
+        <!-- RELAX -->
+        <image id="handRelaxed"
+               href="hand_open.png"
+               x="0" y="0" width="300" height="400"
+               opacity="0.35"
+               class="handImg active" />
+
+        <!-- EGG -->
+        <image id="handEgg"
+               href="hand_egg.png"
+               x="0" y="0" width="300" height="400"
+               opacity="0.35"
+               class="handImg" />
+
+        <!-- PEN -->
+        <image id="handPen"
+               href="hand_pen.png"
+               x="0" y="0" width="300" height="400"
+               opacity="0.35"
+               class="handImg" />
+
+        <!-- PHONE -->
+        <image id="handPhone"
+               href="hand_hold.png"
+               x="0" y="0" width="300" height="400"
+               opacity="0.35"
+               class="handImg" />
+
+        <!-- KEY -->
+        <image id="handKey"
+               href="hand_key.png"
+               x="0" y="0" width="300" height="400"
+               opacity="0.35"
+               class="handImg" />
+
+        <!-- SALUTE -->
+        <image id="handSalute"
+               href="hand_salute.png"
+               x="0" y="0" width="300" height="400"
+               opacity="0.35"
+               class="handImg" />
+
+      </svg>
+
+    </div>
+
+    <!-- ===== Status ===== -->
+    <div id="status">Ready.</div>
+    <div id="result">State: RELAXED</div>
+
+    <!-- ===== Controls ===== -->
+    <div class="row">
+      <button id="startCameraBtn">Start Camera</button>
+      <button id="lockBtn">Lock</button>
+      <button id="miniOpenBtn">Mini-Open</button>
+      <button id="relaxBtn">Relax</button>
+    </div>
+
+    <!-- ===== Simulation ===== -->
+    <div class="row">
+      <button id="simEgg">EGG</button>
+      <button id="simPen">PEN</button>
+      <button id="simPhone">PHONE</button>
+      <button id="simKey">KEY</button>
+      <button id="simSalute">SALUTE</button>
+    </div>
+
+  </div>
+  <!-- =========================
+       DEBUG HUD
+  ========================== -->
+  <div id="debugHud">
+    <div id="debugHudHeader">
+      <div id="debugHudTitle">HUD DEBUG</div>
+      <div id="debugHudBtns">
+        <button id="hudCopyBtn" class="hudBtn">Copy</button>
+        <button id="hudLogBtn" class="hudBtn">Log</button>
+        <button id="hudCloseBtn" class="hudBtn">Close</button>
+      </div>
+    </div>
+    <div id="debugHudBody">
+      <pre id="debugText"></pre>
+      <div id="hudHint">
+        ※ Camera / COCO / TF backend / FPS / freeze / lock 状態を表示
+      </div>
+    </div>
+  </div>
+
+  <!-- =========================
+       DIY OVERLAY
+  ========================== -->
+  <div id="diyOverlay" style="display:none;">
+
+    <div id="diyPanel">
+
+      <h2>DIY Mode (Custom Classifier)</h2>
+
+      <div class="row">
+        <span>Label</span>
+        <select id="diyLabelSelect"></select>
+      </div>
+
+      <div class="row">
+        <span>Split</span>
+        <select id="diySplitSelect">
+          <option value="train">TRAIN</option>
+          <option value="test">TEST</option>
+        </select>
+      </div>
+
+      <div class="row">
+        <button id="diyCaptureBtn">Capture</button>
+        <button id="diyPresetBtn">Preset</button>
+        <button id="diyClearBtn">Clear</button>
+      </div>
+
+      <div class="row">
+        <button id="diyTrainBtn">Train</button>
+        <button id="diyEvalBtn">Evaluate</button>
+        <button id="diySaveBtn">Deploy</button>
+      </div>
+
+      <div class="row">
+        <button id="diyApproveBtn">Approve & Exit</button>
+        <button id="diyExitBtn">Exit</button>
+      </div>
+
+      <hr>
+
+      <div class="row">
+        <span>Backend</span>
+        <span id="diyBackend">(unknown)</span>
+      </div>
+
+      <div class="row">
+        <span>Train count</span>
+        <span id="diyTrainCount">0</span>
+      </div>
+
+      <div class="row">
+        <span>Test count</span>
+        <span id="diyTestCount">0</span>
+      </div>
+
+      <div class="row">
+        <span>Model state</span>
+        <span id="diyModelState">none</span>
+      </div>
+
+      <pre id="diyLog"></pre>
+
+      <div id="diyCMWrap"></div>
+      <pre id="diyCounts"></pre>
+
+    </div>
+  </div>
+  <script>
+(() => {
+
+  // =========================
+  // DOM REFERENCES
+  // =========================
+  const video        = document.getElementById('video');
+  const renderCanvas = document.getElementById('renderCanvas');
+  const renderCtx    = renderCanvas.getContext('2d');
+
+  const resultEl = document.getElementById('result');
+  const statusEl = document.getElementById('status');
+  const hudText  = document.getElementById('overlayHud');
+
+  const menuToggle = document.getElementById('menuToggle');
+  const menuPanel  = document.getElementById('menuPanel');
+
+  const cameraSelect   = document.getElementById('cameraSelect');
+  const refreshCamsBtn = document.getElementById('refreshCamsBtn');
+
+  const debugHudSelect = document.getElementById('debugHudSelect');
+  const basicSelect    = document.getElementById('basicSelect');
+
+  const diyEnterBtn    = document.getElementById('diyEnterBtn');
+  const useCustomSelect= document.getElementById('useCustomSelect');
+
+  const maxResultsInput = document.getElementById('maxResults');
+  const maxResultsValue = document.getElementById('maxResultsValue');
+  const scoreSlider     = document.getElementById('scoreSlider');
+  const scoreValue      = document.getElementById('scoreValue');
+  const freezeSlider    = document.getElementById('freezeSlider');
+  const freezeValue     = document.getElementById('freezeValue');
+
+  const simEggBtn    = document.getElementById('simEgg');
+  const simPenBtn    = document.getElementById('simPen');
+  const simPhoneBtn  = document.getElementById('simPhone');
+  const simKeyBtn    = document.getElementById('simKey');
+  const simSaluteBtn = document.getElementById('simSalute');
+
+  const miniOpenBtn = document.getElementById('miniOpenBtn');
+  const lockBtn     = document.getElementById('lockBtn');
+  const relaxBtn    = document.getElementById('relaxBtn');
+  const startCamBtn = document.getElementById('startCameraBtn');
+
+  const handRelaxed = document.getElementById('handRelaxed');
+  const handEgg     = document.getElementById('handEgg');
+  const handPen     = document.getElementById('handPen');
+  const handPhone   = document.getElementById('handPhone');
+  const handKey     = document.getElementById('handKey');
+  const handSalute  = document.getElementById('handSalute');
+
+  const allHands = [
+    handRelaxed,
+    handEgg,
+    handPen,
+    handPhone,
+    handKey,
+    handSalute
+  ];
+
+  // DEBUG HUD
+  const debugHud    = document.getElementById('debugHud');
+  const debugText   = document.getElementById('debugText');
+  const hudCopyBtn  = document.getElementById('hudCopyBtn');
+  const hudLogBtn   = document.getElementById('hudLogBtn');
+  const hudCloseBtn = document.getElementById('hudCloseBtn');
+
+  // DIY overlay
+  const diyOverlay     = document.getElementById('diyOverlay');
+  const diyExitBtn     = document.getElementById('diyExitBtn');
+  const diyApproveBtn  = document.getElementById('diyApproveBtn');
+  const diyLabelSelect = document.getElementById('diyLabelSelect');
+  const diySplitSelect = document.getElementById('diySplitSelect');
+  const diyCaptureBtn  = document.getElementById('diyCaptureBtn');
+  const diyPresetBtn   = document.getElementById('diyPresetBtn');
+  const diyClearBtn    = document.getElementById('diyClearBtn');
+  const diyTrainBtn    = document.getElementById('diyTrainBtn');
+  const diyEvalBtn     = document.getElementById('diyEvalBtn');
+  const diySaveBtn     = document.getElementById('diySaveBtn');
+
+  const diyBackendEl    = document.getElementById('diyBackend');
+  const diyTrainCountEl= document.getElementById('diyTrainCount');
+  const diyTestCountEl = document.getElementById('diyTestCount');
+  const diyModelStateEl= document.getElementById('diyModelState');
+  const diyLogEl       = document.getElementById('diyLog');
+  const diyCMWrap      = document.getElementById('diyCMWrap');
+  const diyCountsEl    = document.getElementById('diyCounts');
+
+  // =========================
+  // STATE
+  // =========================
+  let model = null;
+  let stream = null;
+
+  let detectRunning = false;
+  let drawRunning   = false;
+
+  let lockActive = false;
+  let currentGroup = 'none';
+
+  let lastGroups   = [];
+  let freezeUntil  = 0;
+  let freezeGroup  = 'none';
+  let freezeBoxes  = [];
+
+  let demoUntil = 0;
+  let diyActive = false;
+
+  let latestObjects = [];
+  let latestHudLine = 'booting';
+
+  // camera info
+  const camInfo = new Map();
+  let camsSnapshot = [];
+
+  let lastHudFullText = '';
+
+  // FPS
+  let drawFrameCount = 0;
+  let drawFps = 0;
+  let drawFpsT0 = performance.now();
+
+  let detectCount = 0;
+  let detectFps = 0;
+  let detectFpsT0 = performance.now();
+
+  let lastDominant = 'none';
+  let lastBestScore = 0;
+  let lastObjectsCount = 0;
+  let lastDetectError = '';
+
+  let showBasic = true;
+
+  // =========================
+  // AUDIO JINGLE
+  // =========================
+  let audioCtx = null;
+
+  function playJingle(type) {
+    try {
+      if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      if (audioCtx.state === 'suspended') audioCtx.resume();
+
+      const gain = audioCtx.createGain();
+      gain.gain.value = 0.06;
+      gain.connect(audioCtx.destination);
+
+      const now = audioCtx.currentTime;
+      const seq = type === 'exit'
+        ? [{f:784,t:0},{f:659,t:.12},{f:523,t:.24}]
+        : [{f:523,t:0},{f:659,t:.12},{f:784,t:.24}];
+
+      seq.forEach(n=>{
+        const o = audioCtx.createOscillator();
+        o.type = 'sine';
+        o.frequency.setValueAtTime(n.f, now+n.t);
+        o.connect(gain);
+        o.start(now+n.t);
+        o.stop(now+n.t+0.12);
+      });
+    } catch(e){
+      console.warn('audio failed', e);
+    }
   }
 
-  if (state.pose === "miniopen") {
-    img.src = "hand_open.png";
-    img.style.filter =
-      "drop-shadow(0 0 25px rgba(0,180,255,0.7))";
+  // =========================
+  // UI VALUES
+  // =========================
+  function getMaxResults(){
+    return parseInt(maxResultsInput.value,10) || 1;
+  }
+  function getScoreThreshold(){
+    return (parseInt(scoreSlider.value,10)||15)/100;
+  }
+  function getFreezeDurationMs(){
+    return Math.max(2000,(parseInt(freezeSlider.value,10)||3)*1000);
   }
 
-  if (state.pose === "hold") {
-    img.src = "hand_hold.png";
-    img.style.filter =
-      "drop-shadow(0 0 30px rgba(255,255,0,0.8))";
+  // =========================
+  // HAND DISPLAY
+  // =========================
+  function activateHand(group){
+    allHands.forEach(h=>h.classList.remove('active'));
+    let t = handRelaxed;
+    if(group==='egg') t=handEgg;
+    else if(group==='pen') t=handPen;
+    else if(group==='phone') t=handPhone;
+    else if(group==='key') t=handKey;
+    else if(group==='salute') t=handSalute;
+    t.classList.add('active');
+    currentGroup = group;
   }
 
-  updateHUD();
-}
-
-function setPose(pose) {
-  state.pose = pose;
-  state.lastEvent = `POSE → ${pose}`;
-  updateHandImage();
-}
-
-/* ===============================
-   HUD
-================================ */
-function toggleHUD() {
-  state.hud = !state.hud;
-  document.getElementById("hud").style.display =
-    state.hud ? "block" : "none";
-  updateHUD();
-}
-
-function updateHUD() {
-  if (!state.hud) return;
-
-  document.getElementById("hud").textContent =
-`HUD DEBUG
-pose: ${state.pose}
-recognition: ${state.recognition}
-COCO: ${state.cocoReady}
-detections: ${state.detections.length}
-lastEvent: ${state.lastEvent}`;
-}
-
-/* ===============================
-   CAMERA
-================================ */
-async function initCamera() {
-  const stream = await navigator.mediaDevices.getUserMedia({
-    video: { facingMode: "environment" },
-    audio: false
-  });
-  video.srcObject = stream;
-
-  video.onloadedmetadata = () => {
-    canvas.width = video.videoWidth;
-    canvas.height = video.videoHeight;
-  };
-}
-
-/* ===============================
-   COCO INIT
-================================ */
-async function initCOCO() {
-  model = await cocoSsd.load();
-  state.cocoReady = true;
-  state.lastEvent = "COCO loaded";
-  updateHUD();
-  detectLoop();
-}
-
-/* ===============================
-   DETECTION LOOP
-================================ */
-async function detectLoop() {
-  if (!state.recognition || !model) {
-    requestAnimationFrame(detectLoop);
-    return;
+  function clearLockedVisual(){
+    allHands.forEach(h=>h.classList.remove('locked'));
+  }
+  // =========================
+  // GROUP COLOR
+  // =========================
+  function groupColor(group){
+    switch(group){
+      case 'phone': return {stroke:'#00aaff', fill:'rgba(0,170,255,0.20)', text:'#00aaff'};
+      case 'pen':   return {stroke:'#ffff00', fill:'rgba(255,255,0,0.20)', text:'#ffff00'};
+      case 'key':   return {stroke:'#ffffff', fill:'rgba(255,255,255,0.15)', text:'#ffffff'};
+      case 'egg':   return {stroke:'#ffffff', fill:'rgba(255,255,255,0.12)', text:'#ffffff'};
+      default:      return {stroke:'#888888', fill:'rgba(136,136,136,0.10)', text:'#cccccc'};
+    }
   }
 
-  const predictions = await model.detect(video);
-  state.detections = predictions;
+  // =========================
+  // COCO CLASS → GROUP
+  // =========================
+  function mapCocoToGroup(className){
+    const c = (className||'').toLowerCase();
 
-  drawBoxes(predictions);
-  updateHUD();
+    if(c === 'person') return 'ignore';
 
-  requestAnimationFrame(detectLoop);
-}
+    if(c === 'cell phone' || c === 'tv') return 'phone';
 
-/* ===============================
-   DRAW BBOX
-================================ */
-function drawBoxes(preds) {
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
+    if(['scissors','toothbrush','knife','fork','spoon','book','hair drier'].includes(c))
+      return 'pen';
 
-  ctx.strokeStyle = "lime";
-  ctx.lineWidth = 2;
-  ctx.font = "14px monospace";
-  ctx.fillStyle = "lime";
+    if(['wine glass','baseball bat','umbrella'].includes(c))
+      return 'key';
 
-  preds.forEach(p => {
-    const [x, y, w, h] = p.bbox;
-    ctx.strokeRect(x, y, w, h);
-    ctx.fillText(
-      `${p.class} ${Math.round(p.score * 100)}%`,
-      x,
-      y > 10 ? y - 5 : 10
+    if(['remote','orange','apple','banana','hot dog','sandwich','clock','frisbee'].includes(c))
+      return 'egg';
+
+    return 'basic';
+  }
+
+  // =========================
+  // CANVAS SIZE
+  // =========================
+  function resizeRenderCanvas(){
+    const dpr = window.devicePixelRatio || 1;
+    const cw = renderCanvas.clientWidth;
+    const ch = renderCanvas.clientHeight;
+
+    const w = Math.max(1, Math.floor(cw * dpr));
+    const h = Math.max(1, Math.floor(ch * dpr));
+
+    if(renderCanvas.width !== w || renderCanvas.height !== h){
+      renderCanvas.width = w;
+      renderCanvas.height = h;
+    }
+    renderCtx.setTransform(dpr,0,0,dpr,0,0);
+  }
+
+  function getCoverTransform(){
+    const vw = video.videoWidth;
+    const vh = video.videoHeight;
+    const cw = renderCanvas.clientWidth;
+    const ch = renderCanvas.clientHeight;
+
+    const scale = Math.max(cw/vw, ch/vh);
+    const sw = cw/scale;
+    const sh = ch/scale;
+    const sx = (vw - sw)/2;
+    const sy = (vh - sh)/2;
+
+    return {vw,vh,cw,ch,scale,sw,sh,sx,sy};
+  }
+
+  function shouldMirrorDisplay(){
+    const id = cameraSelect.value;
+    const info = camInfo.get(id);
+    return info?.guess === 'front';
+  }
+
+  // =========================
+  // DRAW BOXES
+  // =========================
+  function drawBoxes(objects, tfm){
+    for(const obj of objects){
+      if(obj.group==='basic' && !showBasic) continue;
+
+      const [x,y,w,h] = obj.bbox;
+      const {stroke,fill,text} = groupColor(obj.group);
+
+      const dx = (x - tfm.sx) * tfm.scale;
+      const dy = (y - tfm.sy) * tfm.scale;
+      const dw = w * tfm.scale;
+      const dh = h * tfm.scale;
+
+      if(dx+dw<0 || dy+dh<0 || dx>tfm.cw || dy>tfm.ch) continue;
+
+      renderCtx.lineWidth = 3;
+      renderCtx.strokeStyle = stroke;
+      renderCtx.fillStyle = fill;
+
+      renderCtx.beginPath();
+      renderCtx.rect(dx,dy,dw,dh);
+      renderCtx.fill();
+      renderCtx.stroke();
+
+      renderCtx.font = '16px Arial';
+      renderCtx.fillStyle = text;
+      renderCtx.fillText(
+        `${obj.displayName} ${(obj.score*100).toFixed(1)}%`,
+        dx+4, Math.max(18,dy+18)
+      );
+    }
+  }
+
+  // =========================
+  // DRAW LOOP (VIDEO + BOX)
+  // =========================
+  function drawLoop(){
+    requestAnimationFrame(drawLoop);
+
+    drawFrameCount++;
+    const now = performance.now();
+    if(now - drawFpsT0 >= 1000){
+      drawFps = Math.round((drawFrameCount*1000)/(now-drawFpsT0));
+      drawFrameCount = 0;
+      drawFpsT0 = now;
+    }
+
+    if(!video.videoWidth || video.readyState < 2) return;
+
+    resizeRenderCanvas();
+    const tfm = getCoverTransform();
+    const mirror = shouldMirrorDisplay();
+
+    renderCtx.clearRect(0,0,tfm.cw,tfm.ch);
+
+    if(mirror){
+      renderCtx.save();
+      renderCtx.translate(tfm.cw,0);
+      renderCtx.scale(-1,1);
+    }
+
+    renderCtx.drawImage(
+      video,
+      tfm.sx, tfm.sy, tfm.sw, tfm.sh,
+      0,0, tfm.cw, tfm.ch
     );
+
+    drawBoxes(latestObjects, tfm);
+
+    if(mirror) renderCtx.restore();
+
+    hudText.textContent = latestHudLine;
+  }
+
+  // =========================
+  // MODEL LOAD
+  // =========================
+  async function loadModelIfNeeded(){
+    if(model) return;
+
+    statusEl.textContent = 'Loading COCO-SSD...';
+    latestHudLine = 'Loading COCO-SSD...';
+
+    try{
+      if(tf.getBackend() !== 'webgl'){
+        await tf.setBackend('webgl');
+      }
+    }catch(e){
+      console.warn('webgl failed, fallback cpu');
+      try{ await tf.setBackend('cpu'); }catch(_){}
+    }
+
+    model = await cocoSsd.load();
+    latestHudLine = 'Model: COCO-SSD loaded';
+    statusEl.textContent = 'Model loaded. Tap Start Camera.';
+        }
+  // =========================
+  // DETECTION LOOP (5Hz)
+  // =========================
+  async function runDetectionLoop(){
+    if(!detectRunning) return;
+
+    const loop = async ()=>{
+      if(!detectRunning) return;
+
+      const now = performance.now();
+
+      if(diyActive){
+        latestHudLine = 'DIY Mode: fcAI paused';
+        setTimeout(loop,200);
+        return;
+      }
+
+      if(now < demoUntil){
+        latestHudLine = 'DEMO freeze';
+        setTimeout(loop,200);
+        return;
+      }
+
+      if(lockActive){
+        latestHudLine = 'Locked: detection paused';
+        setTimeout(loop,200);
+        return;
+      }
+
+      if(now < freezeUntil){
+        latestObjects = freezeBoxes;
+        latestHudLine = 'AUTO FREEZE';
+        setTimeout(loop,200);
+        return;
+      }
+
+      if(!model || !video.videoWidth || video.readyState < 2){
+        setTimeout(loop,200);
+        return;
+      }
+
+      try{
+        const predictions = await model.detect(video);
+
+        detectCount++;
+        const nowD = performance.now();
+        if(nowD - detectFpsT0 >= 1000){
+          detectFps = Math.round((detectCount*1000)/(nowD-detectFpsT0));
+          detectCount = 0;
+          detectFpsT0 = nowD;
+        }
+
+        const objects = [];
+        const scoreThr = getScoreThreshold();
+        const maxRes = getMaxResults();
+
+        for(const p of predictions){
+          if(p.score < scoreThr) continue;
+          const g = mapCocoToGroup(p.class);
+          if(g === 'ignore') continue;
+
+          objects.push({
+            bbox:p.bbox,
+            score:p.score,
+            group:g,
+            displayName:g.toUpperCase()
+          });
+          if(objects.length >= maxRes) break;
+        }
+
+        latestObjects = objects;
+
+        let dominant = 'none';
+        let best = 0;
+        for(const o of objects){
+          if(['egg','pen','phone','key','salute'].includes(o.group)){
+            if(o.score > best){
+              best = o.score;
+              dominant = o.group;
+            }
+          }
+        }
+
+        lastGroups.push(dominant);
+        if(lastGroups.length > 5) lastGroups.shift();
+
+        activateHand(dominant);
+
+        if(dominant !== 'none'){
+          const cnt = lastGroups.filter(g=>g===dominant).length;
+          if(cnt >= 3){
+            freezeGroup = dominant;
+            freezeBoxes = objects.filter(o=>o.group===dominant);
+            freezeUntil = now + getFreezeDurationMs();
+            latestHudLine = 'AUTO FREEZE';
+          }else{
+            latestHudLine = `Detecting ${dominant}`;
+          }
+        }else{
+          latestHudLine = 'Detecting...';
+        }
+
+      }catch(e){
+        console.error(e);
+        latestHudLine = 'Detection error';
+      }
+
+      setTimeout(loop,200);
+    };
+    loop();
+  }
+
+  // =========================
+  // CAMERA START
+  // =========================
+  async function startCamera(){
+    try{
+      await loadModelIfNeeded();
+
+      if(stream){
+        stream.getTracks().forEach(t=>t.stop());
+        stream=null;
+      }
+
+      if(!cameraSelect.value){
+        await populateCameras();
+      }
+
+      try{
+        stream = await navigator.mediaDevices.getUserMedia({
+          video:{
+            deviceId:{exact:cameraSelect.value},
+            width:{ideal:1280},
+            height:{ideal:720},
+            frameRate:{ideal:30}
+          },
+          audio:false
+        });
+      }catch(e){
+        stream = await navigator.mediaDevices.getUserMedia({
+          video:{facingMode:{ideal:'environment'}},
+          audio:false
+        });
+      }
+
+      video.srcObject = stream;
+      video.onloadedmetadata = async ()=>{
+        await video.play();
+
+        if(!drawRunning){
+          drawRunning = true;
+          drawLoop();
+        }
+        if(!detectRunning){
+          detectRunning = true;
+          runDetectionLoop();
+        }
+
+        statusEl.textContent = 'Camera started';
+        latestHudLine = 'Camera running';
+      };
+
+    }catch(e){
+      console.error(e);
+      statusEl.textContent = 'Camera error';
+      latestHudLine = 'Camera error';
+    }
+  }
+
+  // =========================
+  // MENU / UI
+  // =========================
+  menuToggle.addEventListener('click',()=>{
+    menuPanel.classList.toggle('hidden');
   });
-}
 
-/* ===============================
-   START
-================================ */
-(async () => {
-  await initCamera();
-  await initCOCO();
-})();
-</script>
+  refreshCamsBtn.addEventListener('click',async()=>{
+    await populateCameras();
+    updateHud();
+  });
 
-</body>
-</html>
+  debugHudSelect.addEventListener('change',()=>{
+    setHudVisible(debugHudSelect.value==='on');
+    updateHud();
+  });
+
+  basicSelect.addEventListener('change',()=>{
+    showBasic = (basicSelect.value==='on');
+    updateHud();
+  });
+
+  cameraSelect.addEventListener('change',()=>{
+    if(stream) startCamera();
+    updateHud();
+  });
+
+  startCamBtn.addEventListener('click',()=>{
+    startCamera();
+    updateHud();
+  });
+
+  // =========================
+  // LOCK / OPEN / RELAX
+  // =========================
+  lockBtn.addEventListener('click',()=>{
+    lockActive = true;
+    clearLockedVisual();
+    allHands.forEach(h=>{
+      if(h.classList.contains('active')) h.classList.add('locked');
+    });
+    latestHudLine = 'Locked';
+    updateHud();
+  });
+
+  miniOpenBtn.addEventListener('click',()=>{
+    clearLockedVisual();
+    latestHudLine = 'Mini-Open';
+    updateHud();
+  });
+
+  relaxBtn.addEventListener('click',()=>{
+    lockActive = false;
+    clearLockedVisual();
+    freezeUntil = 0;
+    lastGroups = [];
+    activateHand('none');
+    latestHudLine = 'Relax';
+    updateHud();
+  });
+
+  // =========================
+  // HUD BUTTONS
+  // =========================
+  hudCopyBtn.addEventListener('click',()=>copyHud());
+  hudLogBtn.addEventListener('click',()=>logHud());
+  hudCloseBtn.addEventListener('click',()=>setHudVisible(false));
+
+  // =========================
+  // INIT
+  // =========================
+  window.addEventListener('load',async()=>{
+    maxResultsValue.textContent = maxResultsInput.value;
+    scoreValue.textContent = `${scoreSlider.value}%`;
+    freezeValue.textContent = `${freezeSlider.value} sec`;
+
+    showBasic = (basicSelect.value==='on');
+
+    await populateCameras();
+
+    setHudVisible(false);
+    updateHud();
+  });
